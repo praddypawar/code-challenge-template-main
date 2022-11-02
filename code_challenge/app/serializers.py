@@ -6,18 +6,18 @@ class WeatherDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Weather
-        fields = ["id","dates","max_temp","min_temp","precipitation"]
+        fields = ["id","station_id","date","max_temp","min_temp","precipitation"]
 
 
 class Corn_grain_yieldDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Corn_grain_yield
-        fields = ["id","year","harvested"]
+        fields = ["id","year","corn_yield"]
 
 
 class DataAnalysisSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = DataAnalysis
-        fields = ["id","year","max_temp_avg","min_temp_avg","total_precipitation"]
+        fields = ["id","station_id","year","max_temp_avg","min_temp_avg","total_precipitation"]

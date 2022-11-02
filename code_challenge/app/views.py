@@ -7,30 +7,25 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FileUploadParser
 from .models import Weather,Corn_grain_yield,DataAnalysis
 import pandas as pd
-import time
-import csv 
-from datetime import datetime,timedelta
-from django.db.models import Avg
-from django.db.models.functions.datetime import ExtractMonth, ExtractYear
+import os
+import datetime
+from django.db.models import Max, Min, Avg, Sum
 from django.db.models.functions import TruncMonth, TruncYear
-from django.db.models import Count
 
-now = datetime.now()
 
 from .serializers import WeatherDetailSerializer,Corn_grain_yieldDetailSerializer,DataAnalysisSerializer
 # Create your views here.
-
-
-def cutFile(f):
-    output = " "
-    for chunk in f.chunks():
-        output += chunk.decode('ascii')
-    return output.replace("\n", "").replace("\r", "")
 
 class WeatherList(APIView):
     """
     List all campaign, or create a new campaign.    
     """
+    def add_argument(self, parser):
+        pass
+
+    def format_date(self, date):
+        return date[:4] + '-' + date[4:6]+'-' + date[6:]
+
     
     def get(self, request, format=None):
         api_response = {'status_code': status.HTTP_500_INTERNAL_SERVER_ERROR, 'status': 'failed', 'messages': [], 'data': []}
@@ -43,66 +38,42 @@ class WeatherList(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request, format=None):
-        f = r'./app/demo.txt'
-        o = r'./app/demo.csv'
-        parser_classes = (FileUploadParser,)
-        # api_response = {'status_code': status.HTTP_500_INTERNAL_SERVER_ERROR, 'status': 'failed', 'messages': [], 'data': []}
         try:
-            start = datetime.now()
 
-            my_file = request.FILES['txtfile']
-            filename = '/tmp/myfile'
-            with open(f, 'wb+') as temp_file:
-                for chunk in my_file.chunks():
-                    temp_file.write(chunk)
+            num_of_records_before_insert = Weather.objects.all().count()
+            start_time = datetime.datetime.now()
+
+            # loop through the weather data files
+            files = os.listdir('../wx_data/')
+            for file in files:
+                if file.endswith(".txt"):
+                    # load data into pandas data frame
+                    df = pd.read_csv(f"../wx_data/{str(file)}", sep="\t", header=None, names=['date', 'max_temp', 'min_temp', 'precipitation'])
+                    df_records = df.to_dict('records')
+                    # load data from data frame to model instances
+                    model_instances = [Weather(
+                        station_id=str(file.split('.')[0]),
+                        date=self.format_date(str(record['date'])),
+                        max_temp=record['max_temp'],
+                        min_temp=record['min_temp'],
+                        precipitation=record['precipitation']
+                    ) for record in df_records]
+
+                    # use django bulk_create to insert data into tables
+                    Weather.objects.bulk_create(model_instances, ignore_conflicts=True)
+
+            finish_time = datetime.datetime.now()
+            num_of_records_after_insert = Weather.objects.all().count()
 
 
-            # file_data = cutFile(request.FILES["txtfile"])
-            # file_obj = open(f, "w")
-            # file_obj.write(file_data)
-            # print(file_data)
-            with open(f, 'r') as in_file:
-                lines = in_file.read().splitlines()
-                stripped = [line.replace(","," ").split() for line in lines]
-                grouped = zip(*[stripped]*1)
-                with open(o, 'w') as out_file:
-                    writer = csv.writer(out_file)
-                    writer.writerow(('date', 'max_temp', 'min_temp', 'precipitation '))
-                    for group in grouped:
-                        writer.writerows(group)
-                # print(writer)
-
-            time.sleep(2)
-            products = []
-            df =  pd.read_csv(o)
-            
-            # print(len(df))
-            for i in range(len(df)):
-                if Weather.objects.filter(dates =datetime.strptime(str(df.iloc[i][0]), '%Y%m%d')):
-                    pass
-                else:
-                    products.append(
-                        Weather(
-                        dates = datetime.strptime(str(df.iloc[i][0]), '%Y%m%d'),
-                        max_temp = int(df.iloc[i][1]),
-                        min_temp = int(df.iloc[i][2]),
-                        precipitation = int(df.iloc[i][3]),
-                        )
-                    )
-            Weather.objects.bulk_create(products)
-            end = datetime.now()
-            execution_time =  end - start
-            data = {"messages":"data added.","start_time":start,"end":end,"execution_time ":execution_time}
+            data = {"messages":"data added.","start_time":start_time,"end":finish_time,"execution_time ":finish_time - start_time,"Number of records ingested":num_of_records_after_insert-num_of_records_before_insert}
             return Response(data, status=status.HTTP_201_CREATED)
-       
+
         except Exception as e:
             data=[]
-            data["messages"]=str(e)
+            data["messages"] = "Error"
             return Response(data, status=status.HTTP_400_BAD_REQUEST)
     
-    
-
-
 class Corn_grain_yieldList(APIView):
     """
     List all campaign, or create a new campaign.    
@@ -120,48 +91,24 @@ class Corn_grain_yieldList(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request, format=None):
-        f = r'./app/demo1.txt'
-        o = r'./app/demo1.csv'
-        parser_classes = (FileUploadParser,)
-        # api_response = {'status_code': status.HTTP_500_INTERNAL_SERVER_ERROR, 'status': 'failed', 'messages': [], 'data': []}
         try:
-            start = datetime.now()
+           
+            num_of_records_before_insert = Corn_grain_yield.objects.all().count()
+            start_time = datetime.datetime.now()
+            # load data into pandas data frame
+            df = pd.read_csv("../yld_data/US_corn_grain_yield.txt", sep="\t", header=None, names=['year', 'corn_yield'])
+            df_records = df.to_dict('records')
+            # load data from data frame to model instances
+            model_instances = [Corn_grain_yield(
+                year=record['year'],
+                corn_yield=record['corn_yield'],
+            ) for record in df_records]
+            # use django bulk_create to insert data into tables
+            Corn_grain_yield.objects.bulk_create(model_instances, ignore_conflicts=True)
+            finish_time = datetime.datetime.now()
+            num_of_records_after_insert = Corn_grain_yield.objects.all().count()
+            data = {"messages":"data added.","start_time":start_time,"end":finish_time,"execution_time ":finish_time - start_time,"Number of records ingested":num_of_records_after_insert-num_of_records_before_insert}
 
-            my_file = request.FILES['txtfile']
-            with open(f, 'wb+') as temp_file:
-                for chunk in my_file.chunks():
-                    temp_file.write(chunk)
-
-            with open(f, 'r') as in_file:
-                lines = in_file.read().splitlines()
-                stripped = [line.replace(","," ").split() for line in lines]
-                grouped = zip(*[stripped]*1)
-                with open(o, 'w') as out_file:
-                    writer = csv.writer(out_file)
-                    writer.writerow(('year', 'harvested',))
-                    for group in grouped:
-                        writer.writerows(group)
-                # print(writer)
-
-            # time.sleep(2)
-            products = []
-            df =  pd.read_csv(o)
-            
-            # print(len(df))
-            for i in range(len(df)):
-                if Corn_grain_yield.objects.filter(year =str(df.iloc[i][0])):
-                    pass
-                else:
-                    products.append(
-                        Corn_grain_yield(
-                        year = str(df.iloc[i][0]),
-                        harvested = int(df.iloc[i][1]),
-                        )
-                    )
-            Corn_grain_yield.objects.bulk_create(products)
-            end = datetime.now()
-            execution_time =  end - start
-            data = {"messages":"data added.","start_time":start,"end":end,"execution_time ":execution_time}
             return Response(data, status=status.HTTP_201_CREATED)
        
         except Exception as e:
@@ -169,11 +116,17 @@ class Corn_grain_yieldList(APIView):
             data["messages"]=str(e)
             return Response(data, status=status.HTTP_400_BAD_REQUEST)
     
-    
 class DataAnalysisList(APIView):
     def get(self, request, format=None):
+        get_data = request.query_params
+        if len(get_data) == 0:
+            w_data = DataAnalysis.objects.all()
+        else:
+            kwargs = {i: get_data[i] for i in get_data}
+            w_data = DataAnalysis.objects.filter(**kwargs)
+
         paginator = PageNumberPagination()
-        w_data = DataAnalysis.objects.all()
+
         context = paginator.paginate_queryset(w_data, request)
         serializer = DataAnalysisSerializer(context, many=True)
 
@@ -183,32 +136,27 @@ class DataAnalysisList(APIView):
     def post(self, request, format=None):
        
         try:
-            start = datetime.now()
-            w_data = list(Weather.objects.annotate(year=TruncYear('dates')).values("dates__year").annotate(max_temp_avg=Avg('max_temp'),min_temp_avg=Avg('min_temp'),total_precipitation=Count('precipitation')))
-            
-            products = []
-            
-            
-            # print(len(df))
-            for i in range(len(w_data)):
-                if DataAnalysis.objects.filter(year =str(w_data[i]["dates__year"])):
-                    pass
-                else:
-                    products.append(
-                        DataAnalysis(
-                        year = str(w_data[i]["dates__year"]),
-                        max_temp_avg = w_data[i]["max_temp_avg"],
-                        min_temp_avg = w_data[i]["min_temp_avg"],
-                        total_precipitation = w_data[i]["total_precipitation"],
-                        )
-                    )
-            DataAnalysis.objects.bulk_create(products)
-            end = datetime.now()
-            execution_time =  end - start
-            data = {"messages":"data added.","start_time":start,"end":end,"execution_time ":execution_time}
+            num_of_records_before_insert = DataAnalysis.objects.all().count()
+            start_time = datetime.datetime.now()
+            weather_data = Weather.objects.all().count()
+            if weather_data == 0:
+                print("No Data available to analyze weather")
+                return Response("No Data available to analyze weather", status=status.HTTP_201_CREATED)
+
+            w_data = list(Weather.objects.exclude(max_temp=-9999,precipitation=-9999).annotate(year=TruncYear('date')).values("station_id","date__year").annotate(max_temp_avg=Avg('max_temp'),min_temp_avg=Avg('min_temp'),total_precipitation=Sum('precipitation')))
+
+            print(len(w_data))
+            products = [DataAnalysis(station_id=w_datum["station_id"], year=w_datum["date__year"], max_temp_avg=w_datum["max_temp_avg"], min_temp_avg=w_datum["min_temp_avg"], total_precipitation=w_datum["total_precipitation"]) for w_datum in w_data]
+
+            DataAnalysis.objects.bulk_create(products,ignore_conflicts=True)
+
+            finish_time = datetime.datetime.now()
+            num_of_records_after_insert = DataAnalysis.objects.all().count()
+            data = {"messages":"data added.","start_time":start_time,"end":finish_time,"execution_time ":finish_time - start_time,"Number of records ingested":num_of_records_after_insert-num_of_records_before_insert}
             return Response(data, status=status.HTTP_201_CREATED)
-       
+
         except Exception as e:
             data=[]
-            data["messages"]=e
+            print(e)
+            data["messages"]="error"
             return Response(data, status=status.HTTP_400_BAD_REQUEST)
